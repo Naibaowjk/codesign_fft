@@ -22,7 +22,8 @@ extern fixed Sinewave[N_WAVE];
 //function prototypes
 fixed fix_mpy(fixed a, fixed b);
 int fix_fft_DIT(fixed *fr, fixed *fi, int m, int inverse);
+int fix_fft_DIT_TIE(fixed *fr, fixed *fi, int m, int inverse);
 int fix_fft_DIF(fixed *fr, fixed *fi, int m, int inverse);
-
+int fix_fft_DIF_TIE(fixed *fr, fixed *fi, int m, int inverse);
 
 #endif	//FFT_H

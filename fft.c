@@ -32,7 +32,7 @@
 */
 
 #include "fft.h"
-
+#include <stdlib.h>
 /*
  *	fix_fft() - perform fast Fourier transform.
  *
@@ -271,7 +271,177 @@ int fix_fft_DIF(fixed fr[], fixed fi[], int m, int inverse)
     }
     return scale;
 }
+int fix_fft_DIT_TIE(fixed fr[], fixed fi[], int m, int inverse)
+{                            
+    int mr,nn,i,j,l,k,istep, n, scale, shift;
+    
+    fixed qr,qi;		//even input
+    fixed tr,ti;		//odd input
+    fixed wr,wi;		//twiddle factor
+    fixed *fr_odd, *fr_even, *fi_odd, *fi_even, *wr_tie, *wi_tie, *qr_tie, *qi_tie, *tr_tie, *ti_tie;
+    //number of input data
+    n = 1<<m;
+    if(n > N_WAVE) return -1;
 
+    //TIE 优化的指针+初始化
+
+    fr_odd = (fixed*)calloc(n/2, sizeof(fixed));
+    fr_even = (fixed*)calloc(n / 2, sizeof(fixed));
+    fi_odd = (fixed*)calloc(n / 2, sizeof(fixed));
+    fi_even = (fixed*)calloc(n / 2, sizeof(fixed));
+    wr_tie = (fixed*)calloc(n / 2, sizeof(fixed));
+    wi_tie = (fixed*)calloc(n / 2, sizeof(fixed));
+    qr_tie = (fixed*)calloc(n / 2, sizeof(fixed));
+    qi_tie = (fixed*)calloc(n / 2, sizeof(fixed));
+    tr_tie = (fixed*)calloc(n / 2, sizeof(fixed));
+    ti_tie = (fixed*)calloc(n / 2, sizeof(fixed));
+
+    mr = 0;
+    nn = n - 1;
+    scale = 0;
+
+    /* decimation in time - re-order data */
+    /* 换位置 */
+    for(m=1; m<=nn; ++m) {
+        /* 计算位置 */
+        l = n;
+        do{
+        	l >>= 1;
+        }while(mr+l > nn);
+        mr = (mr & (l-1)) + l;
+    
+        if(mr <= m) continue;
+        tr = fr[m];
+        fr[m] = fr[mr];
+        fr[mr] = tr;
+        
+        ti = fi[m];
+        fi[m] = fi[mr];
+        fi[mr] = ti;
+    }
+	
+    
+    l = 1;
+    k = LOG2_N_WAVE-1;
+    while(l < n)
+    {
+        if(inverse)
+        {
+            /* variable scaling, depending upon data */
+            shift = 0;
+            for(i=0; i<n; ++i)
+            {
+                j = fr[i];
+                if(j < 0) j = -j;
+                
+                m = fi[i];
+                if(m < 0) m = -m;
+                
+                if(j > 16383 || m > 16383)
+                {
+                    shift = 1;
+                    break;
+                }
+            }
+            if(shift) ++scale;
+        }
+        else
+        {
+            /* fixed scaling, for proper normalization -
+               there will be log2(n) passes, so this
+               results in an overall factor of 1/n,
+               distributed to maximize arithmetic accuracy. */
+            shift = 1;
+        }
+        
+        /* it may not be obvious, but the shift will be performed
+           on each data point exactly once, during this pass. */
+        istep = l << 1;		//step width of current butterfly
+        for(m=0; m<l; ++m)
+        {
+            j = m << k;
+            /* 0 <= j < N_WAVE/2 */
+            wr =  Sinewave[j+N_WAVE/4]; //cos
+            wi = -Sinewave[j]; //sin
+            
+            // sin取反
+            if(inverse) wi = -wi;
+            if(shift)
+            {
+                wr >>= 1;
+                wi >>= 1;
+            }
+            
+            // 在此处存放W
+            for (int i = 0; i < n/(2*l); i++)
+            {
+                wr_tie[i + m * n / (2 * l)] = wr;
+                wi_tie[i + m * n / (2 * l)] = wi;
+            }
+                        
+            for(i=m; i<n; i+=istep)
+            {
+            	
+                j = i + l;
+ 
+                qr = fr[i];
+                qi = fi[i];
+                
+                if(shift)
+                {
+                        qr >>= 1;
+                        qi >>= 1;
+                }
+                //将蝶形运算的输入放进数组
+                int temp1 =(i-m)/istep+m*n/(2*l);
+                fr_even[(i-m)/istep+m*n/(2*l)]=qr;
+                fi_even[(i-m)/istep+m*n/(2*l)]=qi;
+                fr_odd[(i-m)/istep+m*n/(2*l)]=fr[j];
+                fi_odd[(i-m)/istep+m*n/(2*l)]=fi[j];
+
+
+            }
+        }
+        
+        //在这里进行蝶形运算
+        /* Code */
+        for (int i = 0; i < n/2; i++)
+        {
+            qr_tie[i]=fr_even[i];
+            qi_tie[i]=fi_even[i];
+
+            tr_tie[i]=fix_mpy(wr_tie[i],fr_odd[i]) - fix_mpy(wi_tie[i],fi_odd[i]);
+            ti_tie[i]=fix_mpy(wr_tie[i],fi_odd[i]) + fix_mpy(wi_tie[i],fr_odd[i]);
+
+            fr_odd[i]=qr_tie[i]-tr_tie[i];
+            fi_odd[i]=qi_tie[i]-ti_tie[i];
+            fr_even[i]=qr_tie[i]+tr_tie[i];
+            fi_even[i]=qi_tie[i]+ti_tie[i];
+        }
+        
+        
+        /* 将算好的数组重新排序 */
+        for(m=0; m<l; ++m)
+        {
+            for ( k = 0; k < n/(2*l); k++)
+            {
+                //计算数组下标h
+                int h=k+n/(2*l)*m;
+                int temp2 = istep * h - m * n / (2 * l) * istep + m;
+                fr[istep*h-m*n/(2*l)*istep+m]=fr_even[h];
+                fi[istep*h-m*n/(2*l)*istep+m]=fi_even[h];
+                fr[istep*h-m*n/(2*l)*istep+m+l]=fr_odd[h];
+                fi[istep*h-m*n/(2*l)*istep+m+l]=fi_odd[h];
+            }
+        }
+
+        
+        --k;
+        l = istep;
+    }
+
+    return scale;
+}
 /*
         fix_mpy() - fixed-point multiplication
 */

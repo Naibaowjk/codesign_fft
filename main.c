@@ -4,6 +4,7 @@
 #include        <stdio.h>
 #include        <math.h>
 
+
 #define DO_FFT	1
 
 
@@ -73,6 +74,30 @@ int main()
     {
         printf("%d: %d, %d\n", i, real[i], imag[i]);
     }
+
+    //FFT_DIT_TIE
+    for(i=0; i<N; i++)
+    {
+        real[i] = 1000*cos(i*2*3.1415926535/N);
+        imag[i] = 0;
+    }
+    fix_fft_DIT_TIE(real, imag, M, 0);
+
+    printf("\nFFT_DIT_TIE\n");
+    for (i=0; i<N; i++)
+    {
+        printf("%d: %d, %d\n", i, real[i], imag[i]);
+    }
+
+
+    //IFFT_DIF
+/*     fix_fft_DIF(real, imag, M, 1);
+    
+    printf("\nIFFT DIF\n");
+    for (i=0; i<N; i++)
+    {
+        printf("%d: %d, %d\n", i, real[i], imag[i]);
+    } */
 
     return 0;
 }
