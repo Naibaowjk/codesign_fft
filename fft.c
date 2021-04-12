@@ -33,6 +33,7 @@
 
 #include "fft.h"
 #include <stdlib.h>
+#include <stdio.h>
 /*
  *	fix_fft() - perform fast Fourier transform.
  *
@@ -131,11 +132,9 @@ int fix_fft_DIT(fixed fr[], fixed fi[], int m, int inverse)
             }
             for(i=m; i<n; i+=istep)
             {
-            	
-                j = i + l;
+            	j = i + l;
                 tr = fix_mpy(wr,fr[j]) - fix_mpy(wi,fi[j]);
                 ti = fix_mpy(wr,fi[j]) + fix_mpy(wi,fr[j]);
-                
                 qr = fr[i];
                 qi = fi[i];
                 
@@ -153,6 +152,8 @@ int fix_fft_DIT(fixed fr[], fixed fi[], int m, int inverse)
 
             }
         }
+
+                
         --k;
         l = istep;
     }
@@ -273,7 +274,7 @@ int fix_fft_DIF(fixed fr[], fixed fi[], int m, int inverse)
 }
 int fix_fft_DIT_TIE(fixed fr[], fixed fi[], int m, int inverse)
 {                            
-    int mr,nn,i,j,l,k,istep, n, scale, shift;
+    int mr,nn,i,j,l,k,b,istep, n, scale, shift;
     
     fixed qr,qi;		//even input
     fixed tr,ti;		//odd input
@@ -371,7 +372,6 @@ int fix_fft_DIT_TIE(fixed fr[], fixed fi[], int m, int inverse)
                 wr >>= 1;
                 wi >>= 1;
             }
-            
             // 在此处存放W
             for (int i = 0; i < n/(2*l); i++)
             {
@@ -383,19 +383,11 @@ int fix_fft_DIT_TIE(fixed fr[], fixed fi[], int m, int inverse)
             {
             	
                 j = i + l;
- 
-                qr = fr[i];
-                qi = fi[i];
-                
-                if(shift)
-                {
-                        qr >>= 1;
-                        qi >>= 1;
-                }
+
                 //将蝶形运算的输入放进数组
                 int temp1 =(i-m)/istep+m*n/(2*l);
-                fr_even[(i-m)/istep+m*n/(2*l)]=qr;
-                fi_even[(i-m)/istep+m*n/(2*l)]=qi;
+                fr_even[(i-m)/istep+m*n/(2*l)]=fr[i];
+                fi_even[(i-m)/istep+m*n/(2*l)]=fi[i];
                 fr_odd[(i-m)/istep+m*n/(2*l)]=fr[j];
                 fi_odd[(i-m)/istep+m*n/(2*l)]=fi[j];
 
@@ -407,12 +399,15 @@ int fix_fft_DIT_TIE(fixed fr[], fixed fi[], int m, int inverse)
         /* Code */
         for (int i = 0; i < n/2; i++)
         {
-            qr_tie[i]=fr_even[i];
             qi_tie[i]=fi_even[i];
-
+            if(shift)
+            {
+                    qr_tie[i] >>= 1;
+                    qi_tie[i] >>= 1;
+            }
             tr_tie[i]=fix_mpy(wr_tie[i],fr_odd[i]) - fix_mpy(wi_tie[i],fi_odd[i]);
             ti_tie[i]=fix_mpy(wr_tie[i],fi_odd[i]) + fix_mpy(wi_tie[i],fr_odd[i]);
-
+            
             fr_odd[i]=qr_tie[i]-tr_tie[i];
             fi_odd[i]=qi_tie[i]-ti_tie[i];
             fr_even[i]=qr_tie[i]+tr_tie[i];
@@ -423,10 +418,10 @@ int fix_fft_DIT_TIE(fixed fr[], fixed fi[], int m, int inverse)
         /* 将算好的数组重新排序 */
         for(m=0; m<l; ++m)
         {
-            for ( k = 0; k < n/(2*l); k++)
+            for ( b = 0; b < n/(2*l); b++)
             {
                 //计算数组下标h
-                int h=k+n/(2*l)*m;
+                int h=b+n/(2*l)*m;
                 int temp2 = istep * h - m * n / (2 * l) * istep + m;
                 fr[istep*h-m*n/(2*l)*istep+m]=fr_even[h];
                 fi[istep*h-m*n/(2*l)*istep+m]=fi_even[h];
@@ -434,7 +429,6 @@ int fix_fft_DIT_TIE(fixed fr[], fixed fi[], int m, int inverse)
                 fi[istep*h-m*n/(2*l)*istep+m+l]=fi_odd[h];
             }
         }
-
         
         --k;
         l = istep;
