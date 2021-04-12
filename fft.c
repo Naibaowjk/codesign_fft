@@ -162,7 +162,7 @@ int fix_fft_DIT(fixed fr[], fixed fi[], int m, int inverse)
 }
 int fix_fft_DIF(fixed fr[], fixed fi[], int m, int inverse)
 {
-     int mr,nn,i,j,l,k,istep, n, scale, shift;
+    int mr,nn,i,j,l,k,istep, n, scale, shift;
     
     fixed qr,qi;		//even input
     fixed tr,ti;		//odd input
@@ -233,20 +233,20 @@ int fix_fft_DIF(fixed fr[], fixed fi[], int m, int inverse)
             {
                 j = i + l;
 
-                tr=fr[i]+fr[j];
-                ti=fi[i]+fi[j];
+                qr=fr[i]+fr[j];
+                qi=fi[i]+fi[j];
 
-                qr=fr[i]-fr[j];
-                qi=fi[i]-fi[j];
-                fr[j]=fix_mpy(wr,qr)-fix_mpy(wi,qi);
-                fi[j]=fix_mpy(wi,qr)+fix_mpy(wr,qi);
+                tr=fr[i]-fr[j];
+                ti=fi[i]-fi[j];
+                fr[j]=fix_mpy(wr,tr)-fix_mpy(wi,ti);
+                fi[j]=fix_mpy(wi,tr)+fix_mpy(wr,ti);
                 if(shift)
                 {
-                    tr >>= 1;
-                    ti >>= 1;
+                    qr >>= 1;
+                    qi >>= 1;
                 }
-                fr[i]=tr;
-                fi[i]=ti;
+                fr[i]=qr;
+                fi[i]=qi;
             }
         }
         ++k;
@@ -399,6 +399,7 @@ int fix_fft_DIT_TIE(fixed fr[], fixed fi[], int m, int inverse)
         /* Code */
         for (int i = 0; i < n/2; i++)
         {
+            qr_tie[i]=fr_even[i];
             qi_tie[i]=fi_even[i];
             if(shift)
             {
@@ -436,6 +437,175 @@ int fix_fft_DIT_TIE(fixed fr[], fixed fi[], int m, int inverse)
 
     return scale;
 }
+
+int fix_fft_DIF_TIE(fixed *fr, fixed *fi, int m, int inverse)
+{
+    int mr,nn,i,j,l,k,b,istep, n, scale, shift;
+    
+    fixed qr,qi;		//even input
+    fixed tr,ti;		//odd input
+    fixed wr,wi;		//twiddle factor
+    
+    fixed *fr_odd, *fr_even, *fi_odd, *fi_even, *wr_tie, *wi_tie, *qr_tie, *qi_tie, *tr_tie, *ti_tie;
+
+    //number of input data
+    n = 1<<m;
+
+    if(n > N_WAVE) return -1;
+
+    //TIE 优化的指针+初始化
+
+    fr_odd = (fixed*)calloc(n/2, sizeof(fixed));
+    fr_even = (fixed*)calloc(n / 2, sizeof(fixed));
+    fi_odd = (fixed*)calloc(n / 2, sizeof(fixed));
+    fi_even = (fixed*)calloc(n / 2, sizeof(fixed));
+    wr_tie = (fixed*)calloc(n / 2, sizeof(fixed));
+    wi_tie = (fixed*)calloc(n / 2, sizeof(fixed));
+    qr_tie = (fixed*)calloc(n / 2, sizeof(fixed));
+    qi_tie = (fixed*)calloc(n / 2, sizeof(fixed));
+    tr_tie = (fixed*)calloc(n / 2, sizeof(fixed));
+    ti_tie = (fixed*)calloc(n / 2, sizeof(fixed));
+
+    mr = 0;
+    nn = n - 1;
+    scale = 0;
+
+    /* decimation in time - re-order data */
+    
+    l = n/2;
+    k = LOG2_N_WAVE- M;
+    while(l >= 1)
+    {
+        if(inverse)
+        {
+            /* variable scaling, depending upon data */
+            shift = 0;
+            for(i=0; i<n; ++i)
+            {
+                j = fr[i];
+                if(j < 0) j = -j;
+                
+                m = fi[i];
+                if(m < 0) m = -m;
+                
+                if(j > 16383 || m > 16383)
+                {
+                    shift = 1;
+                    break;
+                }
+            }
+            if(shift) ++scale;
+        }
+        else
+        {
+            /* fixed scaling, for proper normalization -
+               there will be log2(n) passes, so this
+               results in an overall factor of 1/n,
+               distributed to maximize arithmetic accuracy. */
+            shift = 1;
+        }
+        
+        /* it may not be obvious, but the shift will be performed
+           on each data point exactly once, during this pass. */
+        istep = l << 1;		//step width of current butterfly
+        for(m=0; m<l; ++m)
+        {
+            j = m << k;
+            /* 0 <= j < N_WAVE/2 */
+            wr =  Sinewave[j+N_WAVE/4]; //cos
+            wi = -Sinewave[j]; //sin
+            
+            // sin取反
+            if(inverse) wi = -wi;
+            if(shift)
+            {
+                wr >>= 1;
+                wi >>= 1;
+            }
+            // 在此处存放W
+            for (int i = 0; i < n/(2*l); i++)
+            {
+                wr_tie[i + m * n / (2 * l)] = wr;
+                wi_tie[i + m * n / (2 * l)] = wi;
+            }
+
+
+            for(i=m; i<n; i+=istep)
+            {
+                j = i + l;
+
+                //将蝶形运算的输入放进数组
+                int temp1 =(i-m)/istep+m*n/(2*l);
+                fr_even[(i-m)/istep+m*n/(2*l)]=fr[i];
+                fi_even[(i-m)/istep+m*n/(2*l)]=fi[i];
+                fr_odd[(i-m)/istep+m*n/(2*l)]=fr[j];
+                fi_odd[(i-m)/istep+m*n/(2*l)]=fi[j];
+
+            }
+        }
+        //在此处进行蝶形运算
+        for (int i = 0; i < n/2; i++)
+        {
+
+            qr_tie[i] = fr_even[i] + fr_odd[i];
+            qi_tie[i] = fi_even[i] + fi_odd[i];
+
+            tr_tie[i] = fr_even[i] - fr_odd[i];
+            ti_tie[i] = fi_even[i] - fi_odd[i];
+
+            fr_odd[i] = fix_mpy(wr_tie[i], tr_tie[i]) - fix_mpy(wi_tie[i], ti_tie[i]);
+            fi_odd[i] = fix_mpy(wi_tie[i], tr_tie[i]) + fix_mpy(wr_tie[i], ti_tie[i]);
+
+            if (shift)
+            {
+                qr_tie[i] >>= 1;
+                qi_tie[i] >>= 1;
+            }
+            fr_even[i] = qr_tie[i];
+            fi_even[i] = qi_tie[i];
+        }            
+        // 排序
+        for(m=0; m<l; ++m)
+        {
+            for ( b = 0; b < n/(2*l); b++)
+            {
+                //计算数组下标h
+                int h=b+n/(2*l)*m;
+                int temp2 = istep * h - m * n / (2 * l) * istep + m;
+                fr[istep*h-m*n/(2*l)*istep+m]=fr_even[h];
+                fi[istep*h-m*n/(2*l)*istep+m]=fi_even[h];
+                fr[istep*h-m*n/(2*l)*istep+m+l]=fr_odd[h];
+                fi[istep*h-m*n/(2*l)*istep+m+l]=fi_odd[h];
+            }
+        }
+
+
+        ++k;
+        l = l>>1;
+    }
+       /* 换位置 */
+    for(m=1; m<=nn; ++m) {
+        /* 计算位置 */
+        l = n;
+        do{
+        	l >>= 1;
+        }while(mr+l > nn);
+        mr = (mr & (l-1)) + l;
+    
+        if(mr <= m) continue;
+        tr = fr[m];
+        fr[m] = fr[mr];
+        fr[mr] = tr;
+        
+        ti = fi[m];
+        fi[m] = fi[mr];
+        fi[mr] = ti;
+    }
+    return scale;
+}
+
+
+
 /*
         fix_mpy() - fixed-point multiplication
 */
